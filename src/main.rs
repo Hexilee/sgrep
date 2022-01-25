@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::fs::{metadata, try_exists};
 use std::path::Path;
+use std::sync::Arc;
 
 use anyhow::anyhow;
 use sgrep_collector::Collector;
@@ -11,6 +12,8 @@ use tantivy::directory::MmapDirectory;
 use tantivy::query::QueryParser;
 use tantivy::schema::*;
 use tantivy::{doc, Index, ReloadPolicy};
+
+mod registry;
 
 const META_DIR: &str = "./.rgrep";
 const INDEX_DIR: &str = "./.rgrep/index";
@@ -22,8 +25,8 @@ fn main() -> anyhow::Result<()> {
     let mut collectors: HashMap<&str, &dyn Collector> = HashMap::new();
 
     let mut schema_builder = Schema::builder();
-    schema_builder.add_text_field("path", TEXT | STORED);
-    schema_builder.add_text_field("content", TEXT);
+    let path = schema_builder.add_text_field("path", TEXT | STORED);
+    let contents = schema_builder.add_text_field("contents", TEXT);
     let schema = schema_builder.build();
 
     let dir = MmapDirectory::open(INDEX_DIR)?;
@@ -31,6 +34,15 @@ fn main() -> anyhow::Result<()> {
     // Here we use a buffer of 100MB that will be split
     // between indexing threads.
     let mut index_writer = index.writer(100_000_000)?;
+
+    // Let's index one documents!
+    index_writer.add_document(doc!(
+        path => "./src/main.rs",
+        contents => "He was an old man who fished alone in a skiff in \
+                the Gulf Stream and he had gone eighty-four days \
+                now without taking a fish."
+    ));
+    index_writer.commit()?;
     Ok(())
 }
 

@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 tracing = "0.1"
 anyhow = "1.0"
+utf8-chars = "1.0.2"

@@ -5,3 +5,5 @@ pub trait Collector {
     fn should_collect(&self, path: &Path) -> anyhow::Result<bool>;
     fn collect(&self, path: &Path) -> anyhow::Result<String>;
 }
+
+pub mod utf8;
