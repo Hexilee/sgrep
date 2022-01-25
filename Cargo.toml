@@ -5,8 +5,14 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[workspace]
+members = ["sgrep-collector"]
+
 [dependencies]
+sgrep-collector = { version = "0.1", path = "./sgrep-collector" }
+
 tracing = "0.1"
 tracing-futures = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tantivy = "0.16"
+anyhow = "1.0"
