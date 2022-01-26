@@ -2,6 +2,7 @@
 #![feature(box_syntax)]
 #![feature(path_file_prefix)]
 
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::env;
 use std::fs::{metadata, try_exists, File};
@@ -17,15 +18,24 @@ use tantivy::directory::MmapDirectory;
 use tantivy::query::QueryParser;
 use tantivy::schema::*;
 use tantivy::{doc, Index, ReloadPolicy};
+use tracing::{debug, info};
+use tracing_subscriber::EnvFilter;
 
 mod registry;
 
-const META_DIR: &str = "~/.sgrep";
-const INDEX_DIR: &str = "~/.sgrep/index";
+const META_DIR: &str = "sgrep";
+const INDEX_DIR: &str = "sgrep/index";
 
 fn main() -> anyhow::Result<()> {
-    ensure_dir(META_DIR)?;
-    ensure_dir(INDEX_DIR)?;
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .try_init()
+        .map_err(|err| anyhow::anyhow!("fail to init tracing subscriber: {}", err))?;
+
+    let root = dirs::data_dir().ok_or_else(|| anyhow::anyhow!("fail to get data dir"))?;
+
+    ensure_dir(root.join(META_DIR))?;
+    ensure_dir(root.join(INDEX_DIR))?;
 
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
@@ -47,7 +57,7 @@ fn main() -> anyhow::Result<()> {
     let contents = schema_builder.add_text_field("contents", TEXT);
     let schema = schema_builder.build();
 
-    let dir = MmapDirectory::open(INDEX_DIR)?;
+    let dir = MmapDirectory::open(root.join(INDEX_DIR))?;
     let index = Index::open_or_create(dir, schema.clone())?;
     // Here we use a buffer of 100MB that will be split
     // between indexing threads.
@@ -102,13 +112,14 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn ensure_dir(path: &str) -> anyhow::Result<()> {
-    if !try_exists(path)? {
-        std::fs::create_dir(path)?;
+fn ensure_dir(path: impl Borrow<Path>) -> anyhow::Result<()> {
+    debug!("ensure dir: {:?}", path.borrow());
+    if !try_exists(path.borrow())? {
+        std::fs::create_dir(path.borrow())?;
     }
 
-    if !metadata(path)?.is_dir() {
-        Err(anyhow!("{} is not a directory", path))
+    if !metadata(path.borrow())?.is_dir() {
+        Err(anyhow!("{:?} is not a directory", path.borrow()))
     } else {
         Ok(())
     }
