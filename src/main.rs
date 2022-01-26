@@ -10,14 +10,15 @@ use std::path::Path;
 use std::sync::{Arc, RwLock};
 
 use anyhow::anyhow;
+use colored::Colorize;
 use glob::glob;
 use rayon::prelude::*;
 use sgrep_collector::collectors::UTF8Collector;
 use tantivy::collector::TopDocs;
 use tantivy::directory::MmapDirectory;
-use tantivy::query::QueryParser;
+use tantivy::query::{QueryParser, TermQuery};
 use tantivy::schema::*;
-use tantivy::{doc, Index, ReloadPolicy};
+use tantivy::{doc, Index, ReloadPolicy, Snippet, SnippetGenerator, Term};
 use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
 
@@ -54,7 +55,7 @@ fn main() -> anyhow::Result<()> {
     let collector = schema_builder.add_text_field("collector", STRING | STORED);
     let hash = schema_builder.add_bytes_field("hash", FAST | STORED);
     let filename = schema_builder.add_text_field("filename", TEXT | STORED);
-    let contents = schema_builder.add_text_field("contents", TEXT);
+    let contents = schema_builder.add_text_field("contents", TEXT | STORED);
     let schema = schema_builder.build();
 
     let dir = MmapDirectory::open(root.join(INDEX_DIR))?;
@@ -62,6 +63,11 @@ fn main() -> anyhow::Result<()> {
     // Here we use a buffer of 100MB that will be split
     // between indexing threads.
     let index_writer = Arc::new(RwLock::new(index.writer(100_000_000)?));
+    let reader = index
+        .reader_builder()
+        .reload_policy(ReloadPolicy::Manual)
+        .try_into()?;
+    let searcher = reader.searcher();
 
     glob(pattern)?
         .par_bridge()
@@ -72,9 +78,21 @@ fn main() -> anyhow::Result<()> {
                 let mut ctx = md5::Context::new();
                 std::io::copy(&mut File::open(&p)?, &mut ctx)?;
                 let digest = ctx.compute();
-                let name = p.file_prefix().and_then(|p| p.to_str()).unwrap_or("");
-                for (co, collected) in reg.collect(&p)? {
-                    // Let's index one documents!
+                let path_term = Term::from_field_text(path, p.to_string_lossy().as_ref());
+                let term_query = TermQuery::new(path_term.clone(), IndexRecordOption::Basic);
+                let top_docs = searcher.search(&term_query, &TopDocs::with_limit(1))?;
+                if let Some((_score, doc_address)) = top_docs.first() {
+                    let doc = searcher.doc(*doc_address)?;
+                    let hash = doc.get_first(hash).unwrap().bytes_value().unwrap();
+                    if hash == digest.as_ref() {
+                        return Ok(());
+                    } else {
+                        index.read().unwrap().delete_term(path_term);
+                    }
+                }
+
+                let name = p.file_name().unwrap().to_string_lossy().to_string();
+                if let Some((co, collected)) = reg.collect(&p) {
                     index_writer.read().unwrap().add_document(doc!(
                         path => p.to_str().ok_or_else(|| anyhow!("invalid path"))?,
                         collector => co,
@@ -89,25 +107,23 @@ fn main() -> anyhow::Result<()> {
         .collect::<anyhow::Result<Vec<_>>>()?;
 
     index_writer.write().unwrap().commit()?;
+    reader.reload()?;
 
-    let reader = index
-        .reader_builder()
-        .reload_policy(ReloadPolicy::Manual)
-        .try_into()?;
-    let searcher = reader.searcher();
     let query_parser = QueryParser::for_index(&index, vec![filename, contents]);
     let q = query_parser.parse_query(query)?;
+    let filename_snippet_gen = SnippetGenerator::create(&searcher, &*q, filename)?;
+    let contents_snippet_gen = SnippetGenerator::create(&searcher, &*q, contents)?;
     let top_docs = searcher.search(&q, &TopDocs::with_limit(10))?;
     for (_, addr) in top_docs.iter() {
         let doc = searcher.doc(*addr)?;
         let path = doc.get_first(path).unwrap().text().unwrap();
         let collector = doc.get_first(collector).unwrap().text().unwrap();
-        let hash = doc.get_first(hash).unwrap().bytes_value().unwrap();
-        let filename = doc.get_first(filename).unwrap().text().unwrap();
-        println!("{}: ", path);
-        println!("  {}", collector);
-        println!("  {}", filename);
-        println!("  {:?}", hash);
+        let filename = highlight(filename_snippet_gen.snippet_from_doc(&doc));
+        let contents = highlight(contents_snippet_gen.snippet_from_doc(&doc));
+        println!("{}({}): \n", path.red(), collector.italic());
+        println!("{}", filename);
+        println!("----------------------------------------");
+        println!("{}", contents);
     }
     Ok(())
 }
@@ -123,4 +139,18 @@ fn ensure_dir(path: impl Borrow<Path>) -> anyhow::Result<()> {
     } else {
         Ok(())
     }
+}
+
+fn highlight(snippet: Snippet) -> String {
+    let mut result = String::new();
+    let mut start_from = 0;
+
+    for fragment_range in snippet.highlighted() {
+        result.push_str(&snippet.fragments()[start_from..fragment_range.start]);
+        result.push_str(&snippet.fragments()[fragment_range.clone()].cyan());
+        start_from = fragment_range.end;
+    }
+
+    result.push_str(&snippet.fragments()[start_from..]);
+    result
 }

@@ -51,16 +51,18 @@ impl Registry {
         })
     }
 
-    pub fn collect(&self, path: impl AsRef<Path>) -> anyhow::Result<Vec<(&'static str, String)>> {
+    pub fn collect(&self, path: impl AsRef<Path>) -> Option<(&'static str, String)> {
         self.collectors
             .values()
-            .try_fold(vec![], |mut contents, c| {
+            .filter_map(|c| {
                 let collector = c.as_ref();
-                if collector.should_collect(path.as_ref())? {
-                    let content = collector.collect(path.as_ref())?;
-                    contents.push((collector.name(), content));
+                if collector.should_collect(path.as_ref()).ok()? {
+                    let content = collector.collect(path.as_ref()).ok()?;
+                    Some((collector.name(), content))
+                } else {
+                    None
                 }
-                Ok(contents)
             })
+            .next()
     }
 }
