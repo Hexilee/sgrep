@@ -28,3 +28,9 @@ impl Collector for UTF8Collector {
         Ok(contents)
     }
 }
+
+impl Default for UTF8Collector {
+    fn default() -> Self {
+        UTF8Collector {}
+    }
+}

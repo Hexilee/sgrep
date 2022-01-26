@@ -16,3 +16,6 @@ tracing-futures = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tantivy = "0.16"
 anyhow = "1.0"
+glob = "0.3"
+rayon = "1.5"
+md5 = "0.6"
