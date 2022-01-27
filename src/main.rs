@@ -39,12 +39,12 @@ fn main() -> anyhow::Result<()> {
     ensure_dir(root.join(INDEX_DIR))?;
 
     let args: Vec<String> = env::args().collect();
-    if args.len() < 3 {
+    if args.len() < 2 {
         return Err(anyhow!("usage: sgrep <query> <path>"));
     }
 
     let query = &args[1];
-    let pattern = &args[2];
+    let pattern = args.get(2).map(|v| v.as_str()).unwrap_or("*");
 
     let registry = registry::Registry::builder()
         .register(UTF8Collector::default())
@@ -54,7 +54,6 @@ fn main() -> anyhow::Result<()> {
     let path = schema_builder.add_text_field("path", STRING | STORED);
     let collector = schema_builder.add_text_field("collector", STRING | STORED);
     let hash = schema_builder.add_bytes_field("hash", FAST | STORED);
-    let filename = schema_builder.add_text_field("filename", TEXT | STORED);
     let contents = schema_builder.add_text_field("contents", TEXT | STORED);
     let schema = schema_builder.build();
 
@@ -72,6 +71,15 @@ fn main() -> anyhow::Result<()> {
     glob(pattern)?
         .par_bridge()
         .filter_map(|p| p.ok())
+        .filter_map(|p| {
+            let meta = metadata(&p).ok()?;
+            if meta.is_file() || meta.is_symlink() {
+                Some(p)
+            } else {
+                None
+            }
+        })
+        .filter(|meta| meta.is_file())
         .map_with(
             (registry.clone(), index_writer.clone()),
             |(reg, index), p| -> anyhow::Result<()> {
@@ -91,13 +99,11 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
 
-                let name = p.file_name().unwrap().to_string_lossy().to_string();
                 if let Some((co, collected)) = reg.collect(&p) {
                     index_writer.read().unwrap().add_document(doc!(
                         path => p.to_str().ok_or_else(|| anyhow!("invalid path"))?,
                         collector => co,
                         hash => digest.as_ref(),
-                        filename => name,
                         contents => collected,
                     ));
                 }
@@ -109,21 +115,29 @@ fn main() -> anyhow::Result<()> {
     index_writer.write().unwrap().commit()?;
     reader.reload()?;
 
-    let query_parser = QueryParser::for_index(&index, vec![filename, contents]);
+    let query_parser = QueryParser::for_index(&index, vec![contents]);
     let q = query_parser.parse_query(query)?;
-    let filename_snippet_gen = SnippetGenerator::create(&searcher, &*q, filename)?;
-    let contents_snippet_gen = SnippetGenerator::create(&searcher, &*q, contents)?;
+    let mut snippet_generator = SnippetGenerator::create(&searcher, &*q, contents)?;
+    snippet_generator.set_max_num_chars(128); // 128 char for each line
     let top_docs = searcher.search(&q, &TopDocs::with_limit(10))?;
     for (_, addr) in top_docs.iter() {
         let doc = searcher.doc(*addr)?;
         let path = doc.get_first(path).unwrap().text().unwrap();
         let collector = doc.get_first(collector).unwrap().text().unwrap();
-        let filename = highlight(filename_snippet_gen.snippet_from_doc(&doc));
-        let contents = highlight(contents_snippet_gen.snippet_from_doc(&doc));
-        println!("{}({}): \n", path.red(), collector.italic());
-        println!("{}", filename);
-        println!("----------------------------------------");
-        println!("{}", contents);
+        let contents = doc.get_first(contents).unwrap().text().unwrap();
+        // let contents = snippet_generator.snippet_from_doc(&doc);
+        println!("{}({})", path.purple(), collector.yellow().italic());
+        for (i, line) in contents.split("\n").enumerate() {
+            let highlighted_line = highlight(snippet_generator.snippet(line));
+            if !highlighted_line.is_empty() {
+                println!(
+                    "{}:{}",
+                    (i + 1).to_string().green(),
+                    highlight(snippet_generator.snippet(line)),
+                );
+            }
+        }
+        println!("");
     }
     Ok(())
 }
@@ -147,7 +161,10 @@ fn highlight(snippet: Snippet) -> String {
 
     for fragment_range in snippet.highlighted() {
         result.push_str(&snippet.fragments()[start_from..fragment_range.start]);
-        result.push_str(&snippet.fragments()[fragment_range.clone()].cyan());
+        result.push_str(&format!(
+            "{}",
+            &snippet.fragments()[fragment_range.clone()].red().bold()
+        ));
         start_from = fragment_range.end;
     }
 
