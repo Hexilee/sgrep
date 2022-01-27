@@ -1,10 +1,10 @@
-use std::fs::{read_to_string, File};
-use std::io::BufReader;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 
 use utf8_chars::BufReadCharsExt;
 
-use crate::Collector;
+use crate::{Collector, Line};
 
 pub struct UTF8Collector {}
 
@@ -23,9 +23,17 @@ impl Collector for UTF8Collector {
         Ok(true)
     }
 
-    fn collect(&self, path: &Path) -> anyhow::Result<String> {
-        let contents = read_to_string(path)?;
-        Ok(contents)
+    fn collect(&self, path: &Path) -> anyhow::Result<Vec<Line>> {
+        BufReader::new(File::open(path)?)
+            .lines()
+            .enumerate()
+            .map(|(i, line)| {
+                Ok(Line {
+                    position: (i + 1).to_string(),
+                    line: line?,
+                })
+            })
+            .collect()
     }
 }
 

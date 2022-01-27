@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use sgrep_collector::Collector;
+use sgrep_collector::{Collector, Line};
 
 #[derive(Clone)]
 pub struct Registry {
@@ -51,7 +51,7 @@ impl Registry {
         })
     }
 
-    pub fn collect(&self, path: impl AsRef<Path>) -> Option<(&'static str, String)> {
+    pub fn collect(&self, path: impl AsRef<Path>) -> Option<(&'static str, Vec<Line>)> {
         self.collectors
             .values()
             .filter_map(|c| {

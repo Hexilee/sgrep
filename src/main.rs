@@ -3,7 +3,6 @@
 #![feature(path_file_prefix)]
 
 use std::borrow::Borrow;
-use std::collections::HashMap;
 use std::env;
 use std::fs::{metadata, try_exists, File};
 use std::path::Path;
@@ -54,7 +53,8 @@ fn main() -> anyhow::Result<()> {
     let path = schema_builder.add_text_field("path", STRING | STORED);
     let collector = schema_builder.add_text_field("collector", STRING | STORED);
     let hash = schema_builder.add_bytes_field("hash", FAST | STORED);
-    let contents = schema_builder.add_text_field("contents", TEXT | STORED);
+    let position = schema_builder.add_text_field("position", STRING | STORED);
+    let line = schema_builder.add_text_field("line", TEXT | STORED);
     let schema = schema_builder.build();
 
     let dir = MmapDirectory::open(root.join(INDEX_DIR))?;
@@ -99,13 +99,18 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
 
-                if let Some((co, collected)) = reg.collect(&p) {
-                    index_writer.read().unwrap().add_document(doc!(
+                if let Some((co, lines)) = reg.collect(&p) {
+                    let mut doc = doc!(
                         path => p.to_str().ok_or_else(|| anyhow!("invalid path"))?,
                         collector => co,
                         hash => digest.as_ref(),
-                        contents => collected,
-                    ));
+                    );
+
+                    for l in lines {
+                        doc.add_text(position, l.position);
+                        doc.add_text(line, l.line);
+                    }
+                    index_writer.read().unwrap().add_document(doc);
                 }
                 Ok(())
             },
@@ -115,26 +120,23 @@ fn main() -> anyhow::Result<()> {
     index_writer.write().unwrap().commit()?;
     reader.reload()?;
 
-    let query_parser = QueryParser::for_index(&index, vec![contents]);
+    let query_parser = QueryParser::for_index(&index, vec![line]);
     let q = query_parser.parse_query(query)?;
-    let mut snippet_generator = SnippetGenerator::create(&searcher, &*q, contents)?;
+    let mut snippet_generator = SnippetGenerator::create(&searcher, &*q, line)?;
     snippet_generator.set_max_num_chars(128); // 128 char for each line
     let top_docs = searcher.search(&q, &TopDocs::with_limit(10))?;
     for (_, addr) in top_docs.iter() {
         let doc = searcher.doc(*addr)?;
         let path = doc.get_first(path).unwrap().text().unwrap();
         let collector = doc.get_first(collector).unwrap().text().unwrap();
-        let contents = doc.get_first(contents).unwrap().text().unwrap();
+        let positions = doc.get_all(position);
+        let lines = doc.get_all(line);
         // let contents = snippet_generator.snippet_from_doc(&doc);
         println!("{}({})", path.purple(), collector.yellow().italic());
-        for (i, line) in contents.split("\n").enumerate() {
-            let highlighted_line = highlight(snippet_generator.snippet(line));
+        for (p, l) in positions.zip(lines) {
+            let highlighted_line = highlight(snippet_generator.snippet(l.text().unwrap()));
             if !highlighted_line.is_empty() {
-                println!(
-                    "{}:{}",
-                    (i + 1).to_string().green(),
-                    highlight(snippet_generator.snippet(line)),
-                );
+                println!("{}:{}", p.text().unwrap().green(), highlighted_line,);
             }
         }
         println!("");
