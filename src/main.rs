@@ -1,6 +1,5 @@
 #![feature(path_try_exists)]
 #![feature(box_syntax)]
-#![feature(path_file_prefix)]
 
 use std::borrow::Borrow;
 use std::env;
@@ -134,8 +133,7 @@ fn main() -> anyhow::Result<()> {
         // let contents = snippet_generator.snippet_from_doc(&doc);
         println!("{}({})", path.purple(), collector.yellow().italic());
         for (p, l) in positions.zip(lines) {
-            let highlighted_line = highlight(snippet_generator.snippet(l.text().unwrap()));
-            if !highlighted_line.is_empty() {
+            if let Some(highlighted_line) = highlight(&snippet_generator, l.text().unwrap()) {
                 println!("{}:{}", p.text().unwrap().green(), highlighted_line,);
             }
         }
@@ -157,8 +155,19 @@ fn ensure_dir(path: impl Borrow<Path>) -> anyhow::Result<()> {
     }
 }
 
-fn highlight(snippet: Snippet) -> String {
-    let mut result = String::new();
+fn highlight(generator: &SnippetGenerator, text: &str) -> Option<String> {
+    let snippet = generator.snippet(text);
+    if snippet.fragments().is_empty() {
+        return None;
+    }
+
+    let offset = match text.find(snippet.fragments()) {
+        Some(i) => i,
+        None => return None,
+    };
+
+    let mut result = String::with_capacity(text.len());
+    result.push_str(&text[0..offset]);
     let mut start_from = 0;
 
     for fragment_range in snippet.highlighted() {
@@ -170,6 +179,6 @@ fn highlight(snippet: Snippet) -> String {
         start_from = fragment_range.end;
     }
 
-    result.push_str(&snippet.fragments()[start_from..]);
-    result
+    result.push_str(&text[start_from + offset..]);
+    Some(result)
 }
