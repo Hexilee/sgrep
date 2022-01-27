@@ -8,6 +8,7 @@ use std::path::Path;
 use std::sync::{Arc, RwLock};
 
 use anyhow::anyhow;
+use cang_jie::{CangJieTokenizer, CANG_JIE};
 use colored::Colorize;
 use glob::glob;
 use rayon::prelude::*;
@@ -16,7 +17,8 @@ use tantivy::collector::TopDocs;
 use tantivy::directory::MmapDirectory;
 use tantivy::query::{QueryParser, TermQuery};
 use tantivy::schema::*;
-use tantivy::{doc, Index, ReloadPolicy, Snippet, SnippetGenerator, Term};
+use tantivy::tokenizer::{Language, SimpleTokenizer, Stemmer, StopWordFilter, TextAnalyzer};
+use tantivy::{doc, Index, ReloadPolicy, SnippetGenerator, Term};
 use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
 
@@ -24,6 +26,7 @@ mod registry;
 
 const META_DIR: &str = "sgrep";
 const INDEX_DIR: &str = "sgrep/index";
+const TOKENIZER: &str = "simple-with-filters";
 
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -48,16 +51,29 @@ fn main() -> anyhow::Result<()> {
         .register(UTF8Collector::default())
         .build()?;
 
+    let line_field_indexing = TextFieldIndexing::default()
+        .set_tokenizer(TOKENIZER)
+        .set_index_option(IndexRecordOption::WithFreqsAndPositions);
+    let line_options = TextOptions::default()
+        .set_indexing_options(line_field_indexing)
+        .set_stored();
+
     let mut schema_builder = Schema::builder();
     let path = schema_builder.add_text_field("path", STRING | STORED);
     let collector = schema_builder.add_text_field("collector", STRING | STORED);
     let hash = schema_builder.add_bytes_field("hash", FAST | STORED);
     let position = schema_builder.add_text_field("position", STRING | STORED);
-    let line = schema_builder.add_text_field("line", TEXT | STORED);
+    let line = schema_builder.add_text_field("line", line_options);
     let schema = schema_builder.build();
 
     let dir = MmapDirectory::open(root.join(INDEX_DIR))?;
     let index = Index::open_or_create(dir, schema.clone())?;
+
+    let tokenizer = TextAnalyzer::from(SimpleTokenizer)
+        .filter(StopWordFilter::default())
+        .filter(Stemmer::new(Language::English));
+    index.tokenizers().register(TOKENIZER, tokenizer);
+
     // Here we use a buffer of 100MB that will be split
     // between indexing threads.
     let index_writer = Arc::new(RwLock::new(index.writer(100_000_000)?));
