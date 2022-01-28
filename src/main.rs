@@ -2,24 +2,20 @@
 #![feature(box_syntax)]
 
 use std::borrow::Borrow;
-use std::env;
 use std::fs::{metadata, try_exists};
 use std::path::{Path, PathBuf};
 
 use anyhow::anyhow;
 use clap::{Parser, Subcommand};
-use colored::Colorize;
-use sgrep_collector::collectors::UTF8Collector;
 use tracing::debug;
-use tracing_subscriber::EnvFilter;
+use tracing_subscriber::filter::LevelFilter;
 
 use self::engine::Engine;
-use self::highlight::highlight;
 
 mod engine;
 mod grep;
 mod highlight;
-mod index;
+pub mod index;
 pub mod registry;
 mod search;
 
@@ -35,54 +31,56 @@ struct App {
     verbose: usize,
 
     #[clap(subcommand)]
-    sub: Subcommands,
+    commands: Commands,
 }
 
 #[derive(Debug, PartialEq, Subcommand)]
-enum Subcommands {
+enum Commands {
     Grep(grep::Grep),
     Search(search::Search),
     Index(index::Index),
 }
 
-fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .try_init()
-        .map_err(|err| anyhow::anyhow!("fail to init tracing subscriber: {}", err))?;
+trait Command {
+    fn run(&self, index_dir: PathBuf) -> anyhow::Result<()>;
+}
 
-    let app = App::parse();
-
-    ensure_all()?;
-
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        return Err(anyhow!("usage: sgrep <query> <path>"));
-    }
-
-    let query = &args[1];
-    let pattern = args.get(2).map(|v| v.as_str()).unwrap_or("*");
-
-    let registry = registry::Registry::builder()
-        .register(UTF8Collector::default())
-        .build()?;
-
-    let mut engine = Engine::init(index_dir(&root_dir()?))?;
-    engine.indexing(&registry, pattern, 100_000_000)?;
-    let (docs, snippet_generator) = engine.search(query, 5, pattern)?;
-    for d in docs {
-        let doc = d?;
-        let path = doc.path().unwrap();
-        let collector = doc.collector().unwrap();
-        println!("{}({})", path.purple(), collector.yellow().italic());
-        for (p, l) in doc.lines() {
-            if let Some(highlighted_line) = highlight(&snippet_generator, l) {
-                println!("{}:{}", p.green(), highlighted_line);
-            }
+impl App {
+    fn get_level_filter(&self) -> LevelFilter {
+        match self.verbose {
+            0 => LevelFilter::ERROR,
+            1 => LevelFilter::INFO,
+            2 => LevelFilter::DEBUG,
+            _ => LevelFilter::TRACE,
         }
-        println!("");
     }
-    Ok(())
+
+    fn get_command(&self) -> &dyn Command {
+        use Commands::*;
+        match &self.commands {
+            Grep(c) => &*c,
+            Search(c) => &*c,
+            Index(c) => &*c,
+        }
+    }
+}
+
+impl Command for App {
+    fn run(&self, index_dir: PathBuf) -> anyhow::Result<()> {
+        ensure_all()?;
+        self.get_command().run(index_dir)
+    }
+}
+
+fn main() -> anyhow::Result<()> {
+    let app: App = Parser::parse();
+    tracing_subscriber::fmt()
+        .with_max_level(app.get_level_filter())
+        .with_writer(std::io::stderr)
+        .try_init()
+        .map_err(|err| anyhow!("{}", err))?;
+
+    app.run(index_dir(&root_dir()?))
 }
 
 fn ensure_dir(path: impl AsRef<Path>) -> anyhow::Result<()> {

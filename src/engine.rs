@@ -120,7 +120,6 @@ impl Engine {
             .reload_policy(ReloadPolicy::Manual)
             .try_into()?;
         let searcher = reader.searcher();
-
         glob(pattern)?
             .par_bridge()
             .filter_map(|p| p.ok())
@@ -134,8 +133,8 @@ impl Engine {
             })
             .filter(|meta| meta.is_file())
             .map_with(
-                (registry.clone(), index_writer.clone()),
-                |(reg, index), p| -> anyhow::Result<()> {
+                (registry.clone(), index_writer.clone(), self.fields.clone()),
+                |(reg, index, fields), p| -> anyhow::Result<()> {
                     let mut ctx = md5::Context::new();
                     std::io::copy(&mut File::open(&p)?, &mut ctx)?;
                     let digest = ctx.compute();
@@ -144,12 +143,11 @@ impl Engine {
                     let term_query = TermQuery::new(path_term.clone(), IndexRecordOption::Basic);
                     let top_docs = searcher.search(&term_query, &TopDocs::with_limit(1))?;
                     if let Some((_score, doc_address)) = top_docs.first() {
-                        let doc = searcher.doc(*doc_address)?;
-                        let hash = doc
-                            .get_first(self.fields.hash)
-                            .unwrap()
-                            .bytes_value()
-                            .unwrap();
+                        let doc = Doc {
+                            fields: &fields,
+                            doc: searcher.doc(*doc_address)?,
+                        };
+                        let hash = doc.hash().unwrap();
                         if hash == digest.as_ref() {
                             return Ok(());
                         } else {
