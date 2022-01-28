@@ -243,6 +243,6 @@ impl Engine {
                 }
                 Some(d)
             });
-        Ok((Box::new(docs), snippet_generator))
+        Ok((box docs, snippet_generator))
     }
 }
