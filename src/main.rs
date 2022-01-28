@@ -3,31 +3,23 @@
 
 use std::borrow::Borrow;
 use std::env;
-use std::fs::{metadata, try_exists, File};
+use std::fs::{metadata, try_exists};
 use std::path::Path;
-use std::sync::{Arc, RwLock};
 
 use anyhow::anyhow;
-use cang_jie::{CangJieTokenizer, TokenizerOption};
 use colored::Colorize;
-use glob::glob;
-use jieba_rs::Jieba;
-use rayon::prelude::*;
 use sgrep_collector::collectors::UTF8Collector;
-use tantivy::collector::TopDocs;
-use tantivy::directory::MmapDirectory;
-use tantivy::query::{QueryParser, TermQuery};
-use tantivy::schema::*;
-use tantivy::tokenizer::{Language, SimpleTokenizer, Stemmer, StopWordFilter, TextAnalyzer};
-use tantivy::{doc, Index, ReloadPolicy, SnippetGenerator, Term};
-use tracing::{debug, info};
+use tantivy::SnippetGenerator;
+use tracing::debug;
 use tracing_subscriber::EnvFilter;
 
-mod registry;
+use self::engine::Engine;
+
+pub mod engine;
+pub mod registry;
 
 const META_DIR: &str = "sgrep";
 const INDEX_DIR: &str = "sgrep/index";
-const TOKENIZER: &str = "jieba-with-filters";
 
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -52,109 +44,17 @@ fn main() -> anyhow::Result<()> {
         .register(UTF8Collector::default())
         .build()?;
 
-    let line_field_indexing = TextFieldIndexing::default()
-        .set_tokenizer(TOKENIZER)
-        .set_index_option(IndexRecordOption::WithFreqsAndPositions);
-    let line_options = TextOptions::default()
-        .set_indexing_options(line_field_indexing)
-        .set_stored();
-
-    let mut schema_builder = Schema::builder();
-    let path = schema_builder.add_text_field("path", STRING | STORED);
-    let collector = schema_builder.add_text_field("collector", STRING | STORED);
-    let hash = schema_builder.add_bytes_field("hash", FAST | STORED);
-    let position = schema_builder.add_text_field("position", STRING | STORED);
-    let line = schema_builder.add_text_field("line", line_options);
-    let schema = schema_builder.build();
-
-    let dir = MmapDirectory::open(root.join(INDEX_DIR))?;
-    let index = Index::open_or_create(dir, schema.clone())?;
-
-    let tokenizer = TextAnalyzer::from(CangJieTokenizer {
-        worker: Arc::new(Jieba::new()),
-        option: TokenizerOption::ForSearch { hmm: false },
-    })
-    .filter(StopWordFilter::default())
-    .filter(Stemmer::new(Language::English));
-    index.tokenizers().register(TOKENIZER, tokenizer);
-
-    // Here we use a buffer of 100MB that will be split
-    // between indexing threads.
-    let index_writer = Arc::new(RwLock::new(index.writer(100_000_000)?));
-    let reader = index
-        .reader_builder()
-        .reload_policy(ReloadPolicy::Manual)
-        .try_into()?;
-    let searcher = reader.searcher();
-
-    glob(pattern)?
-        .par_bridge()
-        .filter_map(|p| p.ok())
-        .filter_map(|p| {
-            let meta = metadata(&p).ok()?;
-            if meta.is_file() || meta.is_symlink() {
-                Some(p)
-            } else {
-                None
-            }
-        })
-        .filter(|meta| meta.is_file())
-        .map_with(
-            (registry.clone(), index_writer.clone()),
-            |(reg, index), p| -> anyhow::Result<()> {
-                let mut ctx = md5::Context::new();
-                std::io::copy(&mut File::open(&p)?, &mut ctx)?;
-                let digest = ctx.compute();
-                let path_term = Term::from_field_text(path, p.to_string_lossy().as_ref());
-                let term_query = TermQuery::new(path_term.clone(), IndexRecordOption::Basic);
-                let top_docs = searcher.search(&term_query, &TopDocs::with_limit(1))?;
-                if let Some((_score, doc_address)) = top_docs.first() {
-                    let doc = searcher.doc(*doc_address)?;
-                    let hash = doc.get_first(hash).unwrap().bytes_value().unwrap();
-                    if hash == digest.as_ref() {
-                        return Ok(());
-                    } else {
-                        index.read().unwrap().delete_term(path_term);
-                    }
-                }
-
-                if let Some((co, lines)) = reg.collect(&p) {
-                    let mut doc = doc!(
-                        path => p.to_str().ok_or_else(|| anyhow!("invalid path"))?,
-                        collector => co,
-                        hash => digest.as_ref(),
-                    );
-
-                    for l in lines {
-                        doc.add_text(position, l.position);
-                        doc.add_text(line, l.line);
-                    }
-                    index_writer.read().unwrap().add_document(doc);
-                }
-                Ok(())
-            },
-        )
-        .collect::<anyhow::Result<Vec<_>>>()?;
-
-    index_writer.write().unwrap().commit()?;
-    reader.reload()?;
-
-    let query_parser = QueryParser::for_index(&index, vec![line]);
-    let q = query_parser.parse_query(query)?;
-    let mut snippet_generator = SnippetGenerator::create(&searcher, &*q, line)?;
-    snippet_generator.set_max_num_chars(128); // 128 char for each line
-    let top_docs = searcher.search(&q, &TopDocs::with_limit(10))?;
-    for (_, addr) in top_docs.iter() {
-        let doc = searcher.doc(*addr)?;
-        let path = doc.get_first(path).unwrap().text().unwrap();
-        let collector = doc.get_first(collector).unwrap().text().unwrap();
-        let positions = doc.get_all(position);
-        let lines = doc.get_all(line);
-        // let contents = snippet_generator.snippet_from_doc(&doc);
+    let mut engine = Engine::init(root.join(INDEX_DIR))?;
+    engine.indexing(&registry, pattern, 100_000_000)?;
+    let (docs, snippet_generator) = engine.search(query, 5)?;
+    for d in docs {
+        let doc = d?;
+        let path = doc.path().unwrap();
+        let collector = doc.collector().unwrap();
         println!("{}({})", path.purple(), collector.yellow().italic());
-        for (p, l) in positions.zip(lines) {
-            if let Some(highlighted_line) = highlight(&snippet_generator, l.text().unwrap()) {
-                println!("{}:{}", p.text().unwrap().green(), highlighted_line,);
+        for (p, l) in doc.lines() {
+            if let Some(highlighted_line) = highlight(&snippet_generator, l) {
+                println!("{}:{}", p.green(), highlighted_line);
             }
         }
         println!("");
