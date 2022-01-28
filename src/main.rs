@@ -8,9 +8,10 @@ use std::path::Path;
 use std::sync::{Arc, RwLock};
 
 use anyhow::anyhow;
-use cang_jie::{CangJieTokenizer, CANG_JIE};
+use cang_jie::{CangJieTokenizer, TokenizerOption};
 use colored::Colorize;
 use glob::glob;
+use jieba_rs::Jieba;
 use rayon::prelude::*;
 use sgrep_collector::collectors::UTF8Collector;
 use tantivy::collector::TopDocs;
@@ -26,7 +27,7 @@ mod registry;
 
 const META_DIR: &str = "sgrep";
 const INDEX_DIR: &str = "sgrep/index";
-const TOKENIZER: &str = "simple-with-filters";
+const TOKENIZER: &str = "jieba-with-filters";
 
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -69,9 +70,12 @@ fn main() -> anyhow::Result<()> {
     let dir = MmapDirectory::open(root.join(INDEX_DIR))?;
     let index = Index::open_or_create(dir, schema.clone())?;
 
-    let tokenizer = TextAnalyzer::from(SimpleTokenizer)
-        .filter(StopWordFilter::default())
-        .filter(Stemmer::new(Language::English));
+    let tokenizer = TextAnalyzer::from(CangJieTokenizer {
+        worker: Arc::new(Jieba::new()),
+        option: TokenizerOption::ForSearch { hmm: false },
+    })
+    .filter(StopWordFilter::default())
+    .filter(Stemmer::new(Language::English));
     index.tokenizers().register(TOKENIZER, tokenizer);
 
     // Here we use a buffer of 100MB that will be split

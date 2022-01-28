@@ -977,6 +977,7 @@ dependencies = [
  "colored",
  "dirs",
  "glob",
+ "jieba-rs",
  "md5",
  "rayon",
  "sgrep-collector",
