@@ -1,6 +1,7 @@
+use std::collections::HashSet;
 use std::fs::{metadata, File};
 use std::iter::Iterator;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 use anyhow::anyhow;
@@ -13,7 +14,7 @@ use tantivy::directory::MmapDirectory;
 use tantivy::query::{QueryParser, TermQuery};
 use tantivy::schema::*;
 use tantivy::tokenizer::{Language, Stemmer, StopWordFilter, TextAnalyzer};
-use tantivy::{doc, Document, Index, ReloadPolicy, SnippetGenerator, Term};
+use tantivy::{doc, Document, Index, ReloadPolicy, SegmentReader, SnippetGenerator, Term};
 
 use crate::registry::Registry;
 
@@ -21,9 +22,10 @@ const TOKENIZER: &str = "jieba-with-filters";
 
 pub struct Engine {
     index_dir: PathBuf,
+    schema: Schema,
+
     index: Index,
     fields: Fields,
-    schema: Schema,
 }
 
 #[derive(Clone)]
@@ -180,6 +182,7 @@ impl Engine {
         &self,
         query: &str,
         limit: usize,
+        pattern: &str,
     ) -> anyhow::Result<(Docs<'_>, SnippetGenerator)> {
         let query_parser = QueryParser::for_index(&self.index, vec![self.fields.line]);
         let q = query_parser.parse_query(query)?;
@@ -190,7 +193,38 @@ impl Engine {
             .try_into()?;
         let searcher = Arc::new(reader.searcher());
         let snippet_generator = SnippetGenerator::create(&searcher, &*q, self.fields.line)?;
-        let top_docs = searcher.search(&q, &TopDocs::with_limit(limit))?;
+        let path_set = Arc::new(
+            glob(pattern)?
+                .flat_map(|path| path.ok())
+                .collect::<HashSet<PathBuf>>(),
+        );
+        let path_set_cpy = path_set.clone();
+        let fields = Arc::new(self.fields.clone());
+        let top_docs = searcher.search(
+            &q,
+            &TopDocs::with_limit(limit).tweak_score(move |segment_reader: &SegmentReader| {
+                let store_reader = segment_reader
+                    .get_store_reader()
+                    .expect("tweaking score needs store reader");
+                let p_set = path_set_cpy.clone();
+                let fields = fields.clone();
+                move |doc_id, original_score| {
+                    let doc = Doc {
+                        fields: &fields,
+                        doc: store_reader
+                            .get(doc_id)
+                            .expect("get document from store reader"),
+                    };
+
+                    let path: &Path = doc.path().unwrap().as_ref();
+                    if p_set.contains(path) {
+                        original_score
+                    } else {
+                        f32::MIN
+                    }
+                }
+            }),
+        )?;
         let docs = top_docs
             .into_iter()
             .map(move |(_, addr)| searcher.clone().doc(addr))
@@ -199,6 +233,15 @@ impl Engine {
                     fields: &self.fields,
                     doc: d?,
                 })
+            })
+            .filter_map(move |d| {
+                if let Ok(ref doc) = d {
+                    let path: &Path = doc.path()?.as_ref();
+                    if !path_set.contains(path) {
+                        return None;
+                    }
+                }
+                Some(d)
             });
         Ok((Box::new(docs), snippet_generator))
     }

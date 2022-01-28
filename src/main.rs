@@ -46,7 +46,7 @@ fn main() -> anyhow::Result<()> {
 
     let mut engine = Engine::init(root.join(INDEX_DIR))?;
     engine.indexing(&registry, pattern, 100_000_000)?;
-    let (docs, snippet_generator) = engine.search(query, 5)?;
+    let (docs, snippet_generator) = engine.search(query, 5, pattern)?;
     for d in docs {
         let doc = d?;
         let path = doc.path().unwrap();
