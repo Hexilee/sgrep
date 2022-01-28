@@ -1,9 +1,8 @@
-use std::path::PathBuf;
-
 use clap::Args;
+use tantivy::SnippetGenerator;
 
-use crate::index::Index;
-use crate::{Command, Engine};
+use crate::engine::Docs;
+use crate::{Engine, Searcher};
 
 /// Precisely match words by regex
 #[derive(Debug, PartialEq, Args)]
@@ -12,6 +11,7 @@ pub struct Grep {
     #[clap(short, long)]
     indexing: bool,
 
+    /// The pattern, support regex
     pattern: String,
 
     /// Paths to index and match, support [glob](https://github.com/rust-lang-nursery/glob)
@@ -19,8 +19,8 @@ pub struct Grep {
     paths: String,
 }
 
-impl Command for Grep {
-    fn run(&self, index_dir: PathBuf) -> anyhow::Result<()> {
-        unimplemented!()
+impl Searcher for Grep {
+    fn search<'a>(&self, engine: &'a Engine) -> anyhow::Result<(Docs<'a>, SnippetGenerator)> {
+        engine.grep(&self.pattern, 5, &self.paths)
     }
 }

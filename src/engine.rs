@@ -11,7 +11,7 @@ use jieba_rs::Jieba;
 use rayon::prelude::*;
 use tantivy::collector::TopDocs;
 use tantivy::directory::MmapDirectory;
-use tantivy::query::{QueryParser, TermQuery};
+use tantivy::query::{Query, QueryParser, RegexQuery, TermQuery};
 use tantivy::schema::*;
 use tantivy::tokenizer::{Language, Stemmer, StopWordFilter, TextAnalyzer};
 use tantivy::{doc, Document, Index, ReloadPolicy, SegmentReader, SnippetGenerator, Term};
@@ -180,26 +180,45 @@ impl Engine {
         &self,
         query: &str,
         limit: usize,
-        pattern: &str,
+        paths: &str,
     ) -> anyhow::Result<(Docs<'_>, SnippetGenerator)> {
         let query_parser = QueryParser::for_index(&self.index, vec![self.fields.line]);
-        let q = query_parser.parse_query(query)?;
+        let query = query_parser.parse_query(query)?;
+        self.query(&query, limit, paths)
+    }
+
+    pub fn grep(
+        &self,
+        pattern: &str,
+        limit: usize,
+        paths: &str,
+    ) -> anyhow::Result<(Docs<'_>, SnippetGenerator)> {
+        let query = RegexQuery::from_pattern(pattern, self.fields.line)?;
+        self.query(&query, limit, paths)
+    }
+
+    fn query(
+        &self,
+        query: &dyn Query,
+        limit: usize,
+        paths: &str,
+    ) -> anyhow::Result<(Docs<'_>, SnippetGenerator)> {
         let reader = self
             .index
             .reader_builder()
             .reload_policy(ReloadPolicy::Manual)
             .try_into()?;
         let searcher = Arc::new(reader.searcher());
-        let snippet_generator = SnippetGenerator::create(&searcher, &*q, self.fields.line)?;
+        let snippet_generator = SnippetGenerator::create(&searcher, query, self.fields.line)?;
         let path_set = Arc::new(
-            glob(pattern)?
+            glob(paths)?
                 .flat_map(|path| path.ok())
                 .collect::<HashSet<PathBuf>>(),
         );
         let path_set_cpy = path_set.clone();
         let fields = Arc::new(self.fields.clone());
         let top_docs = searcher.search(
-            &q,
+            query,
             &TopDocs::with_limit(limit).tweak_score(move |segment_reader: &SegmentReader| {
                 let store_reader = segment_reader
                     .get_store_reader()
