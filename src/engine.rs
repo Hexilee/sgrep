@@ -13,7 +13,7 @@ use tantivy::collector::TopDocs;
 use tantivy::directory::MmapDirectory;
 use tantivy::query::{Query, QueryParser, TermQuery};
 use tantivy::schema::*;
-use tantivy::tokenizer::{Language, Stemmer, StopWordFilter, TextAnalyzer};
+use tantivy::tokenizer::{Language, LowerCaser, Stemmer, StopWordFilter, TextAnalyzer};
 use tantivy::{doc, Document, Index, ReloadPolicy, SegmentReader, SnippetGenerator, Term};
 
 use crate::registry::Registry;
@@ -94,6 +94,7 @@ impl Engine {
             worker: Arc::new(Jieba::new()),
             option: TokenizerOption::ForSearch { hmm: false },
         })
+        .filter(LowerCaser)
         .filter(StopWordFilter::default())
         .filter(Stemmer::new(Language::English));
         index.tokenizers().register(TOKENIZER, tokenizer);
