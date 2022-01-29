@@ -1,11 +1,10 @@
 use std::path::PathBuf;
-use std::str::pattern::Pattern;
 
 use clap::Args;
 use colored::Colorize;
+use rayon::prelude::*;
 use regex::Regex;
 
-use crate::engine::Docs;
 use crate::{Command, Engine};
 
 /// Precisely match words by regex
@@ -34,34 +33,42 @@ impl Command for Grep {
     fn run(&self, index_dir: PathBuf) -> anyhow::Result<()> {
         let pattern = Regex::new(&self.pattern)?;
         let engine = Engine::init(index_dir)?;
-        let docs = engine.docs(&self.paths)?;
-        for d in docs {
-            let doc = d?;
-            let mut lines = Vec::new();
-            for (p, l) in doc.lines() {
-                let indices = l.match_indices(&pattern).collect::<Vec<_>>();
-                if !indices.is_empty() {
-                    let mut line = l.to_string();
-                    for (i, fragment) in indices {
-                        line.replace_range(
-                            i..i + fragment.len(),
-                            &format!("{}", fragment.red().bold()),
-                        )
+        let docs = engine
+            .docs(&self.paths)?
+            .par_bridge()
+            .filter_map(|d| {
+                let doc = d.ok()?;
+                let mut lines = Vec::new();
+                for (p, l) in doc.lines() {
+                    let indices = l.match_indices(&pattern).collect::<Vec<_>>();
+                    if !indices.is_empty() {
+                        let mut line = l.to_string();
+                        for (i, fragment) in indices {
+                            line.replace_range(
+                                i..i + fragment.len(),
+                                &format!("{}", fragment.red().bold()),
+                            )
+                        }
+                        lines.push((p.to_string(), line));
                     }
-                    lines.push((p, line));
                 }
-            }
-            if !lines.is_empty() {
-                println!(
-                    "{}({})",
-                    doc.path().unwrap().purple(),
-                    doc.collector().unwrap().yellow().italic()
-                );
-                for (p, l) in lines {
-                    println!("{}:{}", p.green(), l);
+                if lines.is_empty() {
+                    None
+                } else {
+                    Some((
+                        doc.path().unwrap().to_string(),
+                        doc.collector().unwrap().to_string(),
+                        lines,
+                    ))
                 }
-                println!("");
+            })
+            .collect::<Vec<_>>();
+        for (path, collector, lines) in docs {
+            println!("{}({})", path.purple(), collector.yellow().italic());
+            for (p, l) in lines {
+                println!("{}:{}", p.green(), l);
             }
+            println!("");
         }
         Ok(())
     }

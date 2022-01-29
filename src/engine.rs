@@ -42,7 +42,7 @@ pub struct Doc<'a> {
     doc: Document,
 }
 
-pub type Docs<'a> = Box<dyn 'a + Iterator<Item = anyhow::Result<Doc<'a>>>>;
+pub type Docs<'a> = Box<dyn 'a + Send + Iterator<Item = anyhow::Result<Doc<'a>>>>;
 
 impl Doc<'_> {
     pub fn path(&self) -> Option<&str> {
