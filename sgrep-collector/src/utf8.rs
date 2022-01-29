@@ -2,11 +2,13 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
+use tracing::{debug, instrument};
 use utf8_chars::BufReadCharsExt;
 
 use crate::{Collector, Line};
 
-pub struct UTF8Collector {}
+#[derive(Debug, Clone, Copy)]
+pub struct UTF8Collector;
 
 impl Collector for UTF8Collector {
     fn name(&self) -> &'static str {
@@ -23,22 +25,19 @@ impl Collector for UTF8Collector {
         Ok(true)
     }
 
+    #[instrument]
     fn collect(&self, path: &Path) -> anyhow::Result<Vec<Line>> {
         BufReader::new(File::open(path)?)
             .lines()
             .enumerate()
             .map(|(i, line)| {
-                Ok(Line {
+                let l = Line {
                     position: (i + 1).to_string(),
                     line: line?,
-                })
+                };
+                debug!("collect line: {:?}", l);
+                Ok(l)
             })
             .collect()
-    }
-}
-
-impl Default for UTF8Collector {
-    fn default() -> Self {
-        UTF8Collector {}
     }
 }

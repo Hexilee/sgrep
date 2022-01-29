@@ -1,4 +1,10 @@
+mod pdf;
+mod utf8;
+
 use std::path::Path;
+
+pub use self::pdf::PDFCollector;
+pub use self::utf8::UTF8Collector;
 
 #[derive(Debug, Clone, Default)]
 pub struct Line {
@@ -8,8 +14,15 @@ pub struct Line {
 
 pub trait Collector: Sync + Send {
     fn name(&self) -> &'static str;
-    fn should_collect(&self, path: &Path) -> anyhow::Result<bool>;
     fn collect(&self, path: &Path) -> anyhow::Result<Vec<Line>>;
-}
 
-pub mod collectors;
+    fn accept_extension(&self, _extension: Option<&str>) -> bool {
+        // accept all extensions by default
+        true
+    }
+
+    fn should_collect(&self, path: &Path) -> anyhow::Result<bool> {
+        let extension = path.extension().and_then(|e| e.to_str());
+        Ok(self.accept_extension(extension.clone()))
+    }
+}

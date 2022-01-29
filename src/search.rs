@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::Args;
 use colored::Colorize;
-use sgrep_collector::collectors::UTF8Collector;
+use sgrep_collector::{PDFCollector, UTF8Collector};
 
 use crate::highlight::highlight;
 use crate::registry::Registry;
@@ -30,7 +30,8 @@ pub struct Search {
 impl Command for Search {
     fn run(&self, index_dir: PathBuf) -> anyhow::Result<()> {
         let registry = Registry::builder()
-            .register(UTF8Collector::default())
+            .register(PDFCollector)
+            .register(UTF8Collector)
             .build()?;
         let mut engine = Engine::init(index_dir, registry, None)?;
         if self.indexing {

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use clap::Args;
-use sgrep_collector::collectors::UTF8Collector;
+use sgrep_collector::{PDFCollector, UTF8Collector};
 
 use crate::registry::Registry;
 use crate::{Command, Engine};
@@ -25,7 +25,8 @@ pub struct Index {
 impl Command for Index {
     fn run(&self, index_dir: PathBuf) -> anyhow::Result<()> {
         let registry = Registry::builder()
-            .register(UTF8Collector::default())
+            .register(PDFCollector)
+            .register(UTF8Collector)
             .build()?;
         let mut engine = Engine::init(index_dir, registry, None)?;
         if self.delete_all {
