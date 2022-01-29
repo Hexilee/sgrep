@@ -4,7 +4,7 @@ use clap::Args;
 use sgrep_collector::collectors::UTF8Collector;
 
 use crate::registry::Registry;
-use crate::{index_dir, root_dir, Command, Engine};
+use crate::{Command, Engine};
 
 /// Manage indexes
 #[derive(Debug, PartialEq, Args)]
@@ -28,7 +28,7 @@ impl Command for Index {
             .register(UTF8Collector::default())
             .build()?;
 
-        let mut engine = Engine::init(index_dir)?;
-        engine.indexing(&registry, &self.paths, 100_000_000)
+        let mut engine = Engine::init(index_dir, registry, None)?;
+        engine.indexing(&self.paths)
     }
 }

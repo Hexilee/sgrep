@@ -8,13 +8,10 @@ use std::path::{Path, PathBuf};
 
 use anyhow::anyhow;
 use clap::{Parser, Subcommand};
-use colored::Colorize;
-use tantivy::SnippetGenerator;
 use tracing::debug;
 use tracing_subscriber::filter::LevelFilter;
 
-use self::engine::{Docs, Engine};
-use self::highlight::highlight;
+use self::engine::Engine;
 
 mod engine;
 mod grep;
@@ -47,33 +44,6 @@ enum Commands {
 
 trait Command {
     fn run(&self, index_dir: PathBuf) -> anyhow::Result<()>;
-}
-
-trait Searcher {
-    fn search<'a>(&self, engine: &'a Engine) -> anyhow::Result<(Docs<'a>, SnippetGenerator)>;
-}
-
-impl<T> Command for T
-where
-    T: Searcher,
-{
-    fn run(&self, index_dir: PathBuf) -> anyhow::Result<()> {
-        let engine = Engine::init(index_dir)?;
-        let (docs, snippet_generator) = self.search(&engine)?;
-        for d in docs {
-            let doc = d?;
-            let path = doc.path().unwrap();
-            let collector = doc.collector().unwrap();
-            println!("{}({})", path.purple(), collector.yellow().italic());
-            for (p, l) in doc.lines() {
-                if let Some(highlighted_line) = highlight(&snippet_generator, l) {
-                    println!("{}:{}", p.green(), highlighted_line);
-                }
-            }
-            println!("");
-        }
-        Ok(())
-    }
 }
 
 impl App {

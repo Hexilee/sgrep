@@ -11,7 +11,7 @@ use jieba_rs::Jieba;
 use rayon::prelude::*;
 use tantivy::collector::TopDocs;
 use tantivy::directory::MmapDirectory;
-use tantivy::query::{Query, QueryParser, RegexQuery, TermQuery};
+use tantivy::query::{Query, QueryParser, TermQuery};
 use tantivy::schema::*;
 use tantivy::tokenizer::{Language, Stemmer, StopWordFilter, TextAnalyzer};
 use tantivy::{doc, Document, Index, ReloadPolicy, SegmentReader, SnippetGenerator, Term};
@@ -19,11 +19,11 @@ use tantivy::{doc, Document, Index, ReloadPolicy, SegmentReader, SnippetGenerato
 use crate::registry::Registry;
 
 const TOKENIZER: &str = "jieba-with-filters";
+const DEFAULT_HEAP_SIZE: usize = 100_000_000;
 
 pub struct Engine {
-    index_dir: PathBuf,
-    schema: Schema,
-
+    heap_size: usize,
+    registry: Registry,
     index: Index,
     fields: Fields,
 }
@@ -67,7 +67,11 @@ impl Doc<'_> {
 }
 
 impl Engine {
-    pub fn init(index_dir: PathBuf) -> anyhow::Result<Self> {
+    pub fn init(
+        index_dir: PathBuf,
+        registry: Registry,
+        heap_size: Option<usize>,
+    ) -> anyhow::Result<Self> {
         let line_field_indexing = TextFieldIndexing::default()
             .set_tokenizer(TOKENIZER)
             .set_index_option(IndexRecordOption::WithFreqsAndPositions);
@@ -94,9 +98,9 @@ impl Engine {
         .filter(Stemmer::new(Language::English));
         index.tokenizers().register(TOKENIZER, tokenizer);
         Ok(Self {
-            index_dir,
+            heap_size: heap_size.unwrap_or(DEFAULT_HEAP_SIZE),
+            registry,
             index,
-            schema,
             fields: Fields {
                 path,
                 collector,
@@ -107,13 +111,8 @@ impl Engine {
         })
     }
 
-    pub fn indexing(
-        &mut self,
-        registry: &Registry,
-        paths: &str,
-        heap_size_in_bytes: usize,
-    ) -> anyhow::Result<()> {
-        let index_writer = Arc::new(RwLock::new(self.index.writer(heap_size_in_bytes)?));
+    pub fn indexing(&mut self, paths: &str) -> anyhow::Result<()> {
+        let index_writer = Arc::new(RwLock::new(self.index.writer(self.heap_size)?));
         let reader = self
             .index
             .reader_builder()
@@ -133,7 +132,11 @@ impl Engine {
             })
             .filter(|meta| meta.is_file())
             .map_with(
-                (registry.clone(), index_writer.clone(), self.fields.clone()),
+                (
+                    self.registry.clone(),
+                    index_writer.clone(),
+                    self.fields.clone(),
+                ),
                 |(reg, index, fields), p| -> anyhow::Result<()> {
                     let mut ctx = md5::Context::new();
                     std::io::copy(&mut File::open(&p)?, &mut ctx)?;
@@ -184,16 +187,6 @@ impl Engine {
     ) -> anyhow::Result<(Docs<'_>, SnippetGenerator)> {
         let query_parser = QueryParser::for_index(&self.index, vec![self.fields.line]);
         let query = query_parser.parse_query(query)?;
-        self.query(&query, limit, paths)
-    }
-
-    pub fn grep(
-        &self,
-        pattern: &str,
-        limit: usize,
-        paths: &str,
-    ) -> anyhow::Result<(Docs<'_>, SnippetGenerator)> {
-        let query = RegexQuery::from_pattern(pattern, self.fields.line)?;
         self.query(&query, limit, paths)
     }
 

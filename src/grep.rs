@@ -4,7 +4,9 @@ use clap::Args;
 use colored::Colorize;
 use rayon::prelude::*;
 use regex::Regex;
+use sgrep_collector::collectors::UTF8Collector;
 
+use crate::registry::Registry;
 use crate::{Command, Engine};
 
 /// Precisely match words by regex
@@ -40,7 +42,13 @@ impl Command for Grep {
         } else {
             Regex::new(&format!(r"(?i){}", self.pattern))?
         };
-        let engine = Engine::init(index_dir)?;
+        let registry = Registry::builder()
+            .register(UTF8Collector::default())
+            .build()?;
+        let mut engine = Engine::init(index_dir, registry, None)?;
+        if self.indexing {
+            engine.indexing(&self.paths)?;
+        }
         let docs = engine
             .docs(&self.paths)?
             .par_bridge()
