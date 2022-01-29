@@ -11,8 +11,12 @@ use crate::{Command, Engine};
 #[derive(Debug, PartialEq, Args)]
 pub struct Grep {
     /// Indexing before grep
-    #[clap(short, long)]
+    #[clap(short = 'I', long)]
     indexing: bool,
+
+    /// Perform case insensitive matching.  By default, sgrep is case sensitive.
+    #[clap(short, long)]
+    ignore_case: bool,
 
     /// The pattern, support regex
     pattern: String,
@@ -31,7 +35,11 @@ pub struct Grep {
 
 impl Command for Grep {
     fn run(&self, index_dir: PathBuf) -> anyhow::Result<()> {
-        let pattern = Regex::new(&self.pattern)?;
+        let pattern = if !self.ignore_case {
+            Regex::new(&self.pattern)?
+        } else {
+            Regex::new(&format!(r"(?i){}", self.pattern))?
+        };
         let engine = Engine::init(index_dir)?;
         let docs = engine
             .docs(&self.paths)?
