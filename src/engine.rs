@@ -110,7 +110,7 @@ impl Engine {
     pub fn indexing(
         &mut self,
         registry: &Registry,
-        pattern: &str,
+        paths: &str,
         heap_size_in_bytes: usize,
     ) -> anyhow::Result<()> {
         let index_writer = Arc::new(RwLock::new(self.index.writer(heap_size_in_bytes)?));
@@ -120,7 +120,7 @@ impl Engine {
             .reload_policy(ReloadPolicy::Manual)
             .try_into()?;
         let searcher = reader.searcher();
-        glob(pattern)?
+        glob(paths)?
             .par_bridge()
             .filter_map(|p| p.ok())
             .filter_map(|p| {
@@ -195,6 +195,44 @@ impl Engine {
     ) -> anyhow::Result<(Docs<'_>, SnippetGenerator)> {
         let query = RegexQuery::from_pattern(pattern, self.fields.line)?;
         self.query(&query, limit, paths)
+    }
+
+    pub fn docs(&self, paths: &str) -> anyhow::Result<Docs<'_>> {
+        let reader = self
+            .index
+            .reader_builder()
+            .reload_policy(ReloadPolicy::Manual)
+            .try_into()?;
+        let searcher = reader.searcher();
+        let docs = glob(paths)?
+            .par_bridge()
+            .filter_map(|p| p.ok())
+            .filter_map(|p| {
+                let meta = metadata(&p).ok()?;
+                if meta.is_file() || meta.is_symlink() {
+                    Some(p)
+                } else {
+                    None
+                }
+            })
+            .filter(|meta| meta.is_file())
+            .map(|p| -> anyhow::Result<_> {
+                let path_term =
+                    Term::from_field_text(self.fields.path, p.to_string_lossy().as_ref());
+                let term_query = TermQuery::new(path_term.clone(), IndexRecordOption::Basic);
+                let top_docs = searcher.search(&term_query, &TopDocs::with_limit(1))?;
+                if let Some((_score, doc_address)) = top_docs.first() {
+                    Ok(Some(Doc {
+                        fields: &self.fields,
+                        doc: searcher.doc(*doc_address)?,
+                    }))
+                } else {
+                    Ok(None)
+                }
+            })
+            .filter_map(Result::transpose)
+            .collect::<Vec<_>>();
+        Ok(box docs.into_iter())
     }
 
     fn query(

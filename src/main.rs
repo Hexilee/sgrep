@@ -1,5 +1,6 @@
 #![feature(path_try_exists)]
 #![feature(box_syntax)]
+#![feature(pattern)]
 
 use std::borrow::Borrow;
 use std::fs::{metadata, try_exists};
