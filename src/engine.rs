@@ -180,6 +180,26 @@ impl Engine {
         Ok(())
     }
 
+    pub fn remove_indexes(&mut self, paths: &str) -> anyhow::Result<()> {
+        let index_writer = Arc::new(RwLock::new(self.index.writer(self.heap_size)?));
+        self.docs(paths)?
+            .par_bridge()
+            .filter_map(|p| p.ok())
+            .for_each(|doc| {
+                let path_term = Term::from_field_text(self.fields.path, doc.path().unwrap());
+                index_writer.clone().read().unwrap().delete_term(path_term);
+            });
+        index_writer.write().unwrap().commit()?;
+        Ok(())
+    }
+
+    pub fn remove_all_indexes(&mut self) -> anyhow::Result<()> {
+        let mut index_writer = self.index.writer(self.heap_size)?;
+        index_writer.delete_all_documents()?;
+        index_writer.commit()?;
+        Ok(())
+    }
+
     pub fn search(
         &self,
         query: &str,

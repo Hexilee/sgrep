@@ -27,8 +27,13 @@ impl Command for Index {
         let registry = Registry::builder()
             .register(UTF8Collector::default())
             .build()?;
-
         let mut engine = Engine::init(index_dir, registry, None)?;
-        engine.indexing(&self.paths)
+        if self.delete_all {
+            engine.remove_all_indexes()
+        } else if self.delete {
+            engine.remove_indexes(&self.paths)
+        } else {
+            engine.indexing(&self.paths)
+        }
     }
 }
