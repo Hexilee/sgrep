@@ -13,10 +13,13 @@ use tantivy::collector::TopDocs;
 use tantivy::directory::MmapDirectory;
 use tantivy::query::{Query, QueryParser, TermQuery};
 use tantivy::schema::*;
-use tantivy::tokenizer::{Language, LowerCaser, Stemmer, StopWordFilter, TextAnalyzer};
+use tantivy::tokenizer::{Language, LowerCaser, Stemmer, TextAnalyzer};
 use tantivy::{doc, Document, Index, ReloadPolicy, SegmentReader, SnippetGenerator, Term};
 
+use self::stopwords::StopWordFilter;
 use crate::registry::Registry;
+
+mod stopwords;
 
 const TOKENIZER: &str = "jieba-with-filters";
 const DEFAULT_HEAP_SIZE: usize = 100_000_000;

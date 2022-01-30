@@ -1245,12 +1245,14 @@ dependencies = [
  "clap",
  "colored",
  "dirs",
+ "fnv",
  "glob",
  "jieba-rs",
  "md5",
  "rayon",
  "regex",
  "sgrep-collector",
+ "stopwords",
  "tantivy",
  "tracing",
  "tracing-futures",
@@ -1379,6 +1381,16 @@ name = "stdweb-internal-runtime"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "213701ba3370744dcd1a12960caa4843b3d68b4d1c0a5d575e0d65b2ee9d16c0"
+
+[[package]]
+name = "stopwords"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e4508a6e132e6ea159112d42ed1f29927460dd45a118eed298d7666c81b713e"
+dependencies = [
+ "lazy_static",
+ "thiserror",
+]
 
 [[package]]
 name = "strsim"

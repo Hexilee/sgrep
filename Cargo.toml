@@ -17,11 +17,13 @@ cang-jie = "0.13"
 clap = {version = "3.0", features = ["derive"]}
 colored = "2.0"
 dirs = "4.0"
+fnv = "1.0"
 glob = "0.3"
 jieba-rs = "0.6"
 md5 = "0.6"
 rayon = "1.5"
 regex = {version = "1.5", features = ["pattern"]}
+stopwords = "0.1"
 tantivy = "0.16"
 tracing = "0.1"
 tracing-futures = "0.2"
