@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::iter::IntoIterator;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -15,8 +16,18 @@ pub struct RegistryBuilder {
 }
 
 impl RegistryBuilder {
-    pub fn register(mut self, collector: impl 'static + Collector) -> Self {
-        self.collectors.push(box collector);
+    pub fn register(mut self, collector: Box<dyn Collector>) -> Self {
+        self.collectors.push(collector);
+        self
+    }
+
+    pub fn register_list(
+        mut self,
+        collectors: impl IntoIterator<Item = Box<dyn Collector>>,
+    ) -> Self {
+        for c in collectors {
+            self = self.register_boxed(c)
+        }
         self
     }
 

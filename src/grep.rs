@@ -4,7 +4,7 @@ use clap::Args;
 use colored::Colorize;
 use rayon::prelude::*;
 use regex::Regex;
-use sgrep_collector::{PDFCollector, UTF8Collector};
+use sgrep_collector::all_collectors;
 
 use crate::registry::Registry;
 use crate::{Command, Engine};
@@ -43,8 +43,7 @@ impl Command for Grep {
             Regex::new(&format!(r"(?i){}", self.pattern))?
         };
         let registry = Registry::builder()
-            .register(PDFCollector)
-            .register(UTF8Collector)
+            .register_list(all_collectors())
             .build()?;
         let mut engine = Engine::init(index_dir, registry, None)?;
         if self.indexing {
