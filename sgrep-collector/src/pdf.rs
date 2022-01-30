@@ -1,7 +1,8 @@
 use std::path::Path;
 
-use pdf::file::File;
-use tracing::{debug, instrument};
+use lopdf::Document;
+use rayon::prelude::*;
+use tracing::instrument;
 
 use crate::{Collector, Line};
 
@@ -22,27 +23,24 @@ impl Collector for PDFCollector {
 
     #[instrument]
     fn collect(&self, path: &Path) -> anyhow::Result<Vec<Line>> {
-        let file = File::open(path)?;
-        let mut lines = vec![];
-        for (i, p) in file.pages().enumerate() {
-            let page = p?;
-            let contents = match page.contents {
-                None => continue,
-                Some(ref c) => c,
-            };
-            let line = contents
-                .operations
-                .iter()
-                .flat_map(|op| op.operands.iter().map(|p| p.to_string()))
-                .collect::<Vec<_>>()
-                .join(" ");
-            let l = Line {
-                position: format!("p{}", i + 1),
-                line,
-            };
-            debug!("collect line: {:?}", l);
-            lines.push(l)
-        }
-        Ok(lines)
+        let doc = Document::load(path)?;
+        let mut indexed_pages = doc
+            .get_pages()
+            .into_iter()
+            .par_bridge()
+            .map(|(p, _)| {
+                let mut page = doc.extract_text(&[p])?;
+                page.remove_matches("?Identity-H Unimplemented?");
+                Ok((p, page))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        indexed_pages.sort_by(|(p1, _), (p2, _)| p1.cmp(p2));
+        Ok(indexed_pages
+            .into_iter()
+            .map(|(p, page)| Line {
+                position: format!("p{}", p),
+                line: page,
+            })
+            .collect())
     }
 }

@@ -7,6 +7,7 @@ version = "0.1.0"
 
 [dependencies]
 anyhow = "1.0"
-pdf = "0.7"
+lopdf = "0.27"
+rayon = "1.5"
 tracing = "0.1"
 utf8-chars = "1.0.2"
