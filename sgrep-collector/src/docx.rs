@@ -28,9 +28,9 @@ impl Collector for DocxCollector {
         buffered
             .lines()
             .enumerate()
-            .map(|(i, line)| {
+            .map(|(_, line)| {
                 Ok(Line {
-                    position: format!("{}", i + 1),
+                    position: "".to_string(), // TODO: locate lines
                     line: line?.to_string(),
                 })
             })
