@@ -9,7 +9,6 @@ pub struct JiebaTokenizer {
 }
 
 pub struct JiebaTokenStream {
-    tokenizer: Arc<Jieba>,
     tokens: Vec<Token>,
     index: usize,
 }
@@ -65,11 +64,7 @@ impl Tokenizer for JiebaTokenizer {
                 position_length: token.end - token.start,
             });
         }
-        BoxTokenStream::from(JiebaTokenStream {
-            tokenizer: self.tokenizer.clone(),
-            tokens,
-            index: 0,
-        })
+        BoxTokenStream::from(JiebaTokenStream { tokens, index: 0 })
     }
 }
 
