@@ -115,7 +115,7 @@ impl Engine {
         })
     }
 
-    pub fn indexing(&mut self, paths: &str) -> anyhow::Result<()> {
+    pub fn indexing(&mut self, paths: HashSet<&str>) -> anyhow::Result<()> {
         let index_writer = Arc::new(RwLock::new(self.index.writer(self.heap_size)?));
         let reader = self
             .index
@@ -123,18 +123,7 @@ impl Engine {
             .reload_policy(ReloadPolicy::Manual)
             .try_into()?;
         let searcher = reader.searcher();
-        glob(paths)?
-            .par_bridge()
-            .filter_map(|p| p.ok())
-            .filter_map(|p| {
-                let meta = metadata(&p).ok()?;
-                if meta.is_file() || meta.is_symlink() {
-                    Some(p)
-                } else {
-                    None
-                }
-            })
-            .filter(|meta| meta.is_file())
+        Self::glob(paths)
             .map_with(
                 (
                     self.registry.clone(),
@@ -183,7 +172,7 @@ impl Engine {
         Ok(())
     }
 
-    pub fn remove_indexes(&mut self, paths: &str) -> anyhow::Result<()> {
+    pub fn remove_indexes(&mut self, paths: HashSet<&str>) -> anyhow::Result<()> {
         let index_writer = Arc::new(RwLock::new(self.index.writer(self.heap_size)?));
         self.docs(paths)?
             .par_bridge()
@@ -207,32 +196,21 @@ impl Engine {
         &self,
         query: &str,
         limit: usize,
-        paths: &str,
+        paths: HashSet<&str>,
     ) -> anyhow::Result<(Docs<'_>, SnippetGenerator)> {
         let query_parser = QueryParser::for_index(&self.index, vec![self.fields.line]);
         let query = query_parser.parse_query(query)?;
         self.query(&query, limit, paths)
     }
 
-    pub fn docs(&self, paths: &str) -> anyhow::Result<Docs<'_>> {
+    pub fn docs(&self, paths: HashSet<&str>) -> anyhow::Result<Docs<'_>> {
         let reader = self
             .index
             .reader_builder()
             .reload_policy(ReloadPolicy::Manual)
             .try_into()?;
         let searcher = reader.searcher();
-        let docs = glob(paths)?
-            .par_bridge()
-            .filter_map(|p| p.ok())
-            .filter_map(|p| {
-                let meta = metadata(&p).ok()?;
-                if meta.is_file() || meta.is_symlink() {
-                    Some(p)
-                } else {
-                    None
-                }
-            })
-            .filter(|meta| meta.is_file())
+        let docs = Self::glob(paths)
             .map(|p| -> anyhow::Result<_> {
                 let path_term =
                     Term::from_field_text(self.fields.path, p.to_string_lossy().as_ref());
@@ -256,7 +234,7 @@ impl Engine {
         &self,
         query: &dyn Query,
         limit: usize,
-        paths: &str,
+        paths: HashSet<&str>,
     ) -> anyhow::Result<(Docs<'_>, SnippetGenerator)> {
         let reader = self
             .index
@@ -265,11 +243,7 @@ impl Engine {
             .try_into()?;
         let searcher = Arc::new(reader.searcher());
         let snippet_generator = SnippetGenerator::create(&searcher, query, self.fields.line)?;
-        let path_set = Arc::new(
-            glob(paths)?
-                .flat_map(|path| path.ok())
-                .collect::<HashSet<PathBuf>>(),
-        );
+        let path_set = Arc::new(Self::glob(paths).collect::<HashSet<PathBuf>>());
         let path_set_cpy = path_set.clone();
         let fields = Arc::new(self.fields.clone());
         let top_docs = searcher.search(
@@ -316,5 +290,23 @@ impl Engine {
                 Some(d)
             });
         Ok((box docs, snippet_generator))
+    }
+
+    fn glob<'a>(paths: HashSet<&'a str>) -> impl 'a + ParallelIterator<Item = PathBuf> {
+        paths
+            .into_iter()
+            .filter_map(|p| glob(p).ok())
+            .flat_map(|paths| paths)
+            .par_bridge()
+            .filter_map(|p| p.ok())
+            .filter_map(|p| {
+                let meta = metadata(&p).ok()?;
+                if meta.is_file() || meta.is_symlink() {
+                    Some(p)
+                } else {
+                    None
+                }
+            })
+            .filter(|meta| meta.is_file())
     }
 }

@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 use clap::Args;
@@ -25,7 +26,7 @@ pub struct Grep {
 
     /// Paths to index and match, support [glob](https://github.com/rust-lang-nursery/glob)
     #[clap(default_value = "*")]
-    paths: String,
+    paths: Vec<String>,
 }
 
 // // Not work now
@@ -46,11 +47,12 @@ impl Command for Grep {
             .register_list(all_collectors())
             .build()?;
         let mut engine = Engine::init(index_dir, registry, None)?;
+        let paths: HashSet<&str> = self.paths.iter().map(|s| s.as_str()).collect();
         if self.indexing {
-            engine.indexing(&self.paths)?;
+            engine.indexing(paths.clone())?;
         }
         let docs = engine
-            .docs(&self.paths)?
+            .docs(paths)?
             .par_bridge()
             .filter_map(|d| {
                 let doc = d.ok()?;

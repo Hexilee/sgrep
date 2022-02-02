@@ -19,7 +19,7 @@ pub struct Index {
 
     /// Paths to index and match, support [glob](https://github.com/rust-lang-nursery/glob)
     #[clap(default_value = "*")]
-    paths: String,
+    paths: Vec<String>,
 }
 
 impl Command for Index {
@@ -31,9 +31,9 @@ impl Command for Index {
         if self.delete_all {
             engine.remove_all_indexes()
         } else if self.delete {
-            engine.remove_indexes(&self.paths)
+            engine.remove_indexes(self.paths.iter().map(|s| s.as_str()).collect())
         } else {
-            engine.indexing(&self.paths)
+            engine.indexing(self.paths.iter().map(|s| s.as_str()).collect())
         }
     }
 }

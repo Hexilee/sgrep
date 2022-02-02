@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 use clap::Args;
@@ -24,7 +25,7 @@ pub struct Search {
 
     /// Paths to index and match, supports [glob](https://github.com/rust-lang-nursery/glob)
     #[clap(default_value = "*")]
-    paths: String,
+    paths: Vec<String>,
 }
 
 impl Command for Search {
@@ -33,11 +34,12 @@ impl Command for Search {
             .register_list(all_collectors())
             .build()?;
         let mut engine = Engine::init(index_dir, registry, None)?;
+        let paths: HashSet<&str> = self.paths.iter().map(|s| s.as_str()).collect();
         if self.indexing {
-            engine.indexing(&self.paths)?;
+            engine.indexing(paths.clone())?;
         }
 
-        let (docs, snippet_generator) = engine.search(&self.query, self.limit, &self.paths)?;
+        let (docs, snippet_generator) = engine.search(&self.query, self.limit, paths)?;
         for d in docs {
             let doc = d?;
             let path = doc.path().unwrap();
