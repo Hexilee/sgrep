@@ -5,9 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 use anyhow::anyhow;
-use cang_jie::{CangJieTokenizer, TokenizerOption};
 use glob::glob;
-use jieba_rs::Jieba;
 use rayon::prelude::*;
 use tantivy::collector::TopDocs;
 use tantivy::directory::MmapDirectory;
@@ -17,9 +15,11 @@ use tantivy::tokenizer::{Language, LowerCaser, Stemmer, TextAnalyzer};
 use tantivy::{doc, Document, Index, ReloadPolicy, SegmentReader, SnippetGenerator, Term};
 
 use self::stopwords::StopWordFilter;
+use self::tokenizer::JiebaTokenizer;
 use crate::registry::Registry;
 
 mod stopwords;
+mod tokenizer;
 
 const TOKENIZER: &str = "jieba-with-filters";
 const DEFAULT_HEAP_SIZE: usize = 100_000_000;
@@ -93,13 +93,10 @@ impl Engine {
         let dir = MmapDirectory::open(&index_dir)?;
         let index = Index::open_or_create(dir, schema.clone())?;
 
-        let tokenizer = TextAnalyzer::from(CangJieTokenizer {
-            worker: Arc::new(Jieba::new()),
-            option: TokenizerOption::ForSearch { hmm: false },
-        })
-        .filter(LowerCaser)
-        .filter(StopWordFilter::default())
-        .filter(Stemmer::new(Language::English));
+        let tokenizer = TextAnalyzer::from(JiebaTokenizer::default())
+            .filter(LowerCaser)
+            .filter(StopWordFilter::default())
+            .filter(Stemmer::new(Language::English));
         index.tokenizers().register(TOKENIZER, tokenizer);
         Ok(Self {
             heap_size: heap_size.unwrap_or(DEFAULT_HEAP_SIZE),
