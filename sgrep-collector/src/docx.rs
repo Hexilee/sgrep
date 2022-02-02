@@ -1,8 +1,7 @@
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 
-use docx::document::{BodyContent, Paragraph};
-use docx::DocxFile;
-use rayon::prelude::*;
+use dotext::{Docx, MsDoc};
 use tracing::instrument;
 
 use crate::{Collector, Line};
@@ -24,34 +23,17 @@ impl Collector for DocxCollector {
 
     #[instrument]
     fn collect(&self, path: &Path) -> anyhow::Result<Vec<Line>> {
-        let doc_file = DocxFile::from_file(path)?;
-        let doc = doc_file.parse()?;
-        let mut indexed_pages = doc
-            .document
-            .body
-            .content
-            .into_iter()
+        let mut doc = Docx::open(path)?;
+        let buffered = BufReader::new(&mut doc);
+        buffered
+            .lines()
             .enumerate()
-            .par_bridge()
-            .filter_map(|(i, content)| match content {
-                BodyContent::Paragraph(p) => Some((i, p)),
-                _ => None, // TODD: support tables
+            .map(|(i, line)| {
+                Ok(Line {
+                    position: format!("{}", i + 1),
+                    line: line?.to_string(),
+                })
             })
-            .map(|(i, p)| {
-                let page = p.iter_text().fold(String::new(), |page, part| {
-                    page.push_str(&part);
-                    page.push_str("\n")
-                });
-                (i, page)
-            })
-            .collect::<Vec<_>>();
-        indexed_pages.sort_by(|(p1, _), (p2, _)| p1.cmp(p2));
-        Ok(indexed_pages
-            .into_iter()
-            .map(|(p, page)| Line {
-                position: format!("p{}", p),
-                line: page,
-            })
-            .collect())
+            .collect()
     }
 }

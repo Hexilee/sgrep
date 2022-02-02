@@ -26,7 +26,7 @@ impl RegistryBuilder {
         collectors: impl IntoIterator<Item = Box<dyn Collector>>,
     ) -> Self {
         for c in collectors {
-            self = self.register_boxed(c)
+            self = self.register(c)
         }
         self
     }

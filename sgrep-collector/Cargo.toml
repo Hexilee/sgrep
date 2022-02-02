@@ -7,7 +7,7 @@ version = "0.1.0"
 
 [dependencies]
 anyhow = "1.0"
-docx = "1.1"
+dotext = "0.1"
 lopdf = "0.27"
 rayon = "1.5"
 tracing = "0.1"
