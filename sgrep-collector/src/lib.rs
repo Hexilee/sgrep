@@ -1,18 +1,26 @@
 #![feature(string_remove_matches)]
 #![feature(box_syntax)]
+#![feature(bool_to_option)]
 
 mod docx;
 mod pdf;
+mod sheet;
 mod utf8;
 
 use std::path::Path;
 
 pub use self::docx::DocxCollector;
 pub use self::pdf::PDFCollector;
+pub use self::sheet::SheetCollector;
 pub use self::utf8::UTF8Collector;
 
 pub fn all_collectors() -> Vec<Box<dyn Collector>> {
-    vec![box DocxCollector, box PDFCollector, box UTF8Collector]
+    vec![
+        box DocxCollector,
+        box SheetCollector,
+        box PDFCollector,
+        box UTF8Collector,
+    ]
 }
 
 #[derive(Debug, Clone, Default)]
