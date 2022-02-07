@@ -30,7 +30,7 @@ impl Default for JiebaTokenizer {
 impl TokenStream for JiebaTokenStream {
     fn advance(&mut self) -> bool {
         if self.index < self.tokens.len() {
-            self.index = self.index + 1;
+            self.index += 1;
             true
         } else {
             false
@@ -54,8 +54,7 @@ impl Tokenizer for JiebaTokenizer {
             .tokenizer
             .tokenize(text, jieba_rs::TokenizeMode::Search, true);
         let mut tokens = Vec::new();
-        for i in 0..orig_tokens.len() {
-            let token = &orig_tokens[i];
+        for token in orig_tokens.iter() {
             tokens.push(Token {
                 offset_from: indices[token.start].0,
                 offset_to: indices[token.end].0,

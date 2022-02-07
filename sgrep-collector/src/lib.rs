@@ -40,6 +40,6 @@ pub trait Collector: Sync + Send {
 
     fn should_collect(&self, path: &Path) -> anyhow::Result<bool> {
         let extension = path.extension().and_then(|e| e.to_str());
-        Ok(self.accept_extension(extension.clone()))
+        Ok(self.accept_extension(extension))
     }
 }

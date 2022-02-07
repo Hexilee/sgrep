@@ -50,7 +50,7 @@ impl Command for Search {
                     println!("{}:{}", p.green(), highlighted_line);
                 }
             }
-            println!("");
+            println!();
         }
         Ok(())
     }

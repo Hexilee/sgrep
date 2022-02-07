@@ -86,7 +86,7 @@ impl Command for Grep {
             for (p, l) in lines {
                 println!("{}:{}", p.green(), l);
             }
-            println!("");
+            println!();
         }
         Ok(())
     }

@@ -91,7 +91,7 @@ impl Engine {
         let schema = schema_builder.build();
 
         let dir = MmapDirectory::open(&index_dir)?;
-        let index = Index::open_or_create(dir, schema.clone())?;
+        let index = Index::open_or_create(dir, schema)?;
 
         let tokenizer = TextAnalyzer::from(JiebaTokenizer::default())
             .filter(LowerCaser)
@@ -137,7 +137,7 @@ impl Engine {
                     let top_docs = searcher.search(&term_query, &TopDocs::with_limit(1))?;
                     if let Some((_score, doc_address)) = top_docs.first() {
                         let doc = Doc {
-                            fields: &fields,
+                            fields,
                             doc: searcher.doc(*doc_address)?,
                         };
                         let hash = doc.hash().unwrap();
@@ -211,7 +211,7 @@ impl Engine {
             .map(|p| -> anyhow::Result<_> {
                 let path_term =
                     Term::from_field_text(self.fields.path, p.to_string_lossy().as_ref());
-                let term_query = TermQuery::new(path_term.clone(), IndexRecordOption::Basic);
+                let term_query = TermQuery::new(path_term, IndexRecordOption::Basic);
                 let top_docs = searcher.search(&term_query, &TopDocs::with_limit(1))?;
                 if let Some((_score, doc_address)) = top_docs.first() {
                     Ok(Some(Doc {
@@ -289,11 +289,11 @@ impl Engine {
         Ok((box docs, snippet_generator))
     }
 
-    fn glob<'a>(paths: HashSet<&'a str>) -> impl 'a + ParallelIterator<Item = PathBuf> {
+    fn glob(paths: HashSet<&'_ str>) -> impl '_ + ParallelIterator<Item = PathBuf> {
         paths
             .into_iter()
             .filter_map(|p| glob(p).ok())
-            .flat_map(|paths| paths)
+            .flatten()
             .par_bridge()
             .filter_map(|p| p.ok())
             .filter_map(|p| {

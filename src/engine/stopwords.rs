@@ -52,13 +52,13 @@ impl StopWordFilter {
         ]
         .into_iter()
         .flat_map(|l| [NLTK::stopwords(l), Spark::stopwords(l)])
-        .filter_map(|l| l)
+        .flatten()
         .collect::<Vec<_>>();
 
         languages.push(CHINESE_WORDS);
         let words = languages
             .into_iter()
-            .flat_map(|words| words.into_iter().map(|w| *w));
+            .flat_map(|words| words.iter().copied());
         StopWordFilter::new(words)
     }
 }

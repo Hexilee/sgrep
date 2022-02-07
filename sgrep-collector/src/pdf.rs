@@ -15,10 +15,7 @@ impl Collector for PDFCollector {
     }
 
     fn accept_extension(&self, extension: Option<&str>) -> bool {
-        match extension {
-            Some(e) if e == "pdf" => true,
-            _ => false,
-        }
+        matches!(extension, Some(e) if e == "pdf")
     }
 
     #[instrument]

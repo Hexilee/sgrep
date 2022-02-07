@@ -15,10 +15,7 @@ impl Collector for DocxCollector {
     }
 
     fn accept_extension(&self, extension: Option<&str>) -> bool {
-        match extension {
-            Some(e) if e == "docx" || e == "doc" => true,
-            _ => false,
-        }
+        matches!(extension, Some(e) if e == "docx" || e == "doc")
     }
 
     #[instrument]
@@ -31,7 +28,7 @@ impl Collector for DocxCollector {
             .map(|(_, line)| {
                 Ok(Line {
                     position: "".to_string(), // TODO: locate lines
-                    line: line?.to_string(),
+                    line: line?,
                 })
             })
             .collect()

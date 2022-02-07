@@ -16,11 +16,13 @@ pub struct RegistryBuilder {
 }
 
 impl RegistryBuilder {
+    #[must_use]
     pub fn register(mut self, collector: Box<dyn Collector>) -> Self {
         self.collectors.push(collector);
         self
     }
 
+    #[must_use]
     pub fn register_list(
         mut self,
         collectors: impl IntoIterator<Item = Box<dyn Collector>>,
